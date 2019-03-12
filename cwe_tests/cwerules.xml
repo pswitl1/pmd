@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<ruleset name="My custom rules"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+    <rule name="net.sourceforge.pmd.lang.java.rule.cwe.UncontrolledFormatStringRule"
+          message="Avoid using 'while' statements without curly braces"
+          class="net.sourceforge.pmd.lang.java.rule.cwe.UncontrolledFormatStringRule">
+        <description>
+            Avoid using 'while' statements without using curly braces
+        </description>
+        <priority>3</priority>
+
+        <example>
+            <![CDATA[
+                void uncontrolledFormatString() {
+                    String data = "foo";
+                    System.out.format(data);
+                    System.out.format("%s%n", data);
+
+                }
+			]]>
+        </example>
+    </rule>
+</ruleset>
