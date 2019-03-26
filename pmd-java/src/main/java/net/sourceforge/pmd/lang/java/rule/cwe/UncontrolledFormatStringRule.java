@@ -31,12 +31,12 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
                     if (children.get(0).jjtGetNumChildren() != 0) {
                         Node potentialBadSink = children.get(0).jjtGetChild(0);
                         if (!(potentialBadSink instanceof ASTLiteral)) {
-                            System.out.println("Potentially bad sink found");
+                            //System.out.println("Potentially bad sink found");
                             Node topBlock = findTopBlock(potentialBadSink);
                             String variableImage = potentialBadSink.getImage();
 
                             if (isLocalVariable(topBlock, variableImage)) {
-                                System.out.println("Potentially bad sink is a local variable");
+                                //System.out.println("Potentially bad sink is a local variable");
                                 if (!checkAssignments(topBlock, variableImage)) {
                                     addViolation(data, node);
                                 }
@@ -82,7 +82,7 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
         List<ASTLocalVariableDeclaration> localVariableDeclarations = parent.findDescendantsOfType(ASTLocalVariableDeclaration.class);
 
         for (ASTLocalVariableDeclaration localVariableDeclaration: localVariableDeclarations) {
-            System.out.println("Local variable declaration found");
+            //System.out.println("Local variable declaration found");
             Node node = localVariableDeclaration.getFirstDescendantOfType(ASTVariableDeclaratorId.class);
             if (node.hasImageEqualTo(variableImage)) {
                 return true;
@@ -95,16 +95,16 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
         List<ASTAssignmentOperator> assignments = parentNode.findDescendantsOfType(ASTAssignmentOperator.class);
 
         for (ASTAssignmentOperator assignment: assignments) {
-            System.out.println("Assignment operator found");
+            //System.out.println("Assignment operator found");
             Node directParent = assignment.jjtGetParent();
             Node varPrefix = directParent.jjtGetChild(0).jjtGetChild(0).jjtGetChild(0);
             if (varPrefix.hasImageEqualTo(variableImage)) {
-                System.out.println("Assignment is assigning desired variable");
+                //System.out.println("Assignment is assigning desired variable");
                 Node afterAssignment = directParent.jjtGetChild(2);
                 List<ASTPrimaryPrefix> prefixes = afterAssignment.findDescendantsOfType(ASTPrimaryPrefix.class);
                 boolean unsafe = false;
                 for (ASTPrimaryPrefix prefix: prefixes) {
-                    System.out.println("Found assignment prefix");
+                    //System.out.println("Found assignment prefix");
                     if (!(prefix.jjtGetChild(0) instanceof ASTLiteral)) {
                         unsafe = true; // Do something with unsafe assignments to further check safety
                     }
