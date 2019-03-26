@@ -13,7 +13,6 @@ import net.sourceforge.pmd.lang.java.ast.ASTAssignmentOperator;
 import net.sourceforge.pmd.lang.java.ast.ASTBlock;
 import net.sourceforge.pmd.lang.java.ast.ASTLiteral;
 import net.sourceforge.pmd.lang.java.ast.ASTLocalVariableDeclaration;
-// import net.sourceforge.pmd.lang.java.ast.ASTMethodDeclaration;
 import net.sourceforge.pmd.lang.java.ast.ASTPrimaryExpression;
 import net.sourceforge.pmd.lang.java.ast.ASTPrimaryPrefix;
 import net.sourceforge.pmd.lang.java.ast.ASTVariableDeclaratorId;
@@ -41,16 +40,7 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
                                 if (!checkAssignments(topBlock, variableImage)) {
                                     addViolation(data, node);
                                 }
-                            } // else { // var is a parameter
-                                // if method is public, add violation
-                                // need to check if parameter first, then if public this is a violation
-                                // it could be a class variable
-                                // ASTMethodDeclaration methodNode = topBlock.getFirstParentOfType(ASTMethodDeclaration.class);
-                                // if (methodNode.isPublic()) {
-                                //     addViolation(data, node);
-                                // }
-                                // if it is a parameter and private, need to search class for where the method is called
-                            // }
+                            }
                         }
                     }
                 }
