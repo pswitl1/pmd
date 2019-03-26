@@ -1,0 +1,1 @@
+mvnw.cmd -pl pmd-dist -am verify

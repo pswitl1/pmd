@@ -13,3 +13,4 @@ bin/
 pmd-core/dependency-reduced-pom.xml
 .bundle
 vendor
+dependencies/
