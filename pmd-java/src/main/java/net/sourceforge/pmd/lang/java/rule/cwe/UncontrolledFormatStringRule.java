@@ -22,162 +22,229 @@ import net.sourceforge.pmd.lang.java.rule.AbstractJavaRule;
 
 public class UncontrolledFormatStringRule extends AbstractJavaRule {
 
+    /**
+     * Visit a primary expression and determine if an UncontrolledFormatStringRule violation can be added
+     *
+     * @param node:    primary expression node
+     * @param data:    object data
+     * @return Object: visit super
+     */
     @Override
     public Object visit(ASTPrimaryExpression node, Object data) {
-        if (isStringFormatExpression(node)) {
-            try {
-                List<Node> children = node.findChildNodesWithXPath(
-                        "./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
-                if (!children.isEmpty()) {
-                    if (children.get(0).jjtGetNumChildren() != 0) {
-                        Node potentialBadSink = children.get(0).jjtGetChild(0);
-                        if (!(potentialBadSink instanceof ASTLiteral)) {
-                            //System.out.println("Potentially bad sink found");
-                            Node topBlock = findTopBlock(potentialBadSink);
-                            String variableImage = potentialBadSink.getImage();
 
-                            if (isLocalVariable(topBlock, variableImage)) {
-                                //System.out.println("Potentially bad sink is a local variable");
-                                if (!checkAssignments(topBlock, variableImage)) {
-                                    addViolation(data, node);
-                                }
-                            } else {
-                                Node methodDeclaration = topBlock.jjtGetParent();
-                                String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
+        // if primary expression isnt a string format/printf, return
+        if (!isStringFormatOrPrintfExpression(node)) {
+            return super.visit(node, data);
+        }
 
-                                Node thisClass = findTopTypeDeclaration(methodDeclaration);
-                                String classImage = thisClass.jjtGetChild(0).getImage();
+        // get first arg, if no arg, return
+        Node firstArg = getFirstArg(node);
+        if (firstArg == null) {
+            return super.visit(node, data);
+        }
 
-                                List<ASTTypeDeclaration> classes = methodDeclaration.getParentsOfType(ASTTypeDeclaration.class);
-                                for (ASTTypeDeclaration cls: classes) {
-                                    if (!checkMethodCalls(classImage, methodImage, cls)) {
-                                        addViolation(data, node);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (JaxenException je) {
-                throw new RuntimeException(je);
+        // if literal, return
+        if (firstArg instanceof ASTLiteral) {
+            return super.visit(node, data);
+        }
+
+        // get this method
+        ASTBlock thisMethod = getMethod(node);
+
+        // if variable is local, check assignments
+        if (isVariableLocal(thisMethod, firstArg.getImage())) {
+            if (!validAssignments(thisMethod, firstArg.getImage())) {
+                addViolation(data, node);
+            }
+        } else {
+
+            // else check class for calls to this method
+            ASTTypeDeclaration thisClass = getClass(node);
+            Node methodDeclaration = thisMethod.jjtGetParent();
+            String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
+            if (!validMethodCalls(thisClass, methodImage)) {
+                addViolation(data, node);
             }
         }
         return super.visit(node, data);
     }
 
-    private boolean checkMethodCalls(String classImage, String methodImage, Node parent) {
-        List<ASTPrimaryPrefix> prefixes = parent.findDescendantsOfType(ASTPrimaryPrefix.class);
-        for (ASTPrimaryPrefix prefix: prefixes) {
-            String checkImage = prefix.jjtGetChild(0).getImage();
-            if (checkImage != null && !checkImage.isEmpty()) {
-                if (methodImage.equals(checkImage)) {
-                    if (!checkArguments(prefix.jjtGetParent())) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
-    }
+    /**
+     * Determine if a primary expression is a format or printf function.
+     *
+     * @param expression: primary expression to check
+     * @return boolean:   true if expression is a System.out.format or System.out.printf expression, false otherwise
+     */
+    private static boolean isStringFormatOrPrintfExpression(ASTPrimaryExpression expression) {
 
-    private boolean checkArguments(Node expression) {
-        //Node expression = prefix.jjtGetParent();
-        try {
-            List<? extends Node> args = expression.findChildNodesWithXPath(
-                    "./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
-
-            for (Node arg: args) {
-                String argImage = arg.jjtGetChild(0).getImage();
-                Node topBlock = findTopBlock(expression);
-                if (isLocalVariable(topBlock, argImage)) {
-                    //System.out.println("Potentially bad sink is a local variable");
-                    if (!checkAssignments(topBlock, argImage)) {
-                        return false;
-                    }
-                }
-            }
-        } catch (JaxenException e) {
-            e.printStackTrace();
-        }
-        return true;
-    }
-
-    private boolean isStringFormatExpression(ASTPrimaryExpression expression) {
+        // check that children exist to enable a string format/printf
         if (expression.jjtGetNumChildren() != 0) {
-            if (expression.jjtGetChild(0) instanceof ASTPrimaryPrefix) {
-                Node primaryPrefix = expression.jjtGetChild(0);
-                if (primaryPrefix.jjtGetNumChildren() != 0) {
-                    String imageString = primaryPrefix.jjtGetChild(0).getImage();
-                    String systemOutFormatString = "System.out.format";
-                    String systemOutPrintfString = "System.out.printf";
-                    if (imageString != null && !imageString.isEmpty()) {
-                        return systemOutFormatString.equals(imageString) || systemOutPrintfString.equals(imageString);
-                    } else {
-                        return false;
-                    }
+            Node primaryPrefix = expression.jjtGetChild(0);
+            if (primaryPrefix.jjtGetNumChildren() != 0) {
+
+                // check if image is a system format/printf
+                String prefixImage = primaryPrefix.jjtGetChild(0).getImage();
+                String systemOutFormatImage = "System.out.format";
+                String systemOutPrintfImage = "System.out.printf";
+                if (prefixImage != null && !prefixImage.isEmpty()) {
+                    return systemOutFormatImage.equals(prefixImage) || systemOutPrintfImage.equals(prefixImage);
                 }
             }
         }
         return false;
     }
 
-    private Node findTopBlock(Node node) {
-        Node parent = node.getFirstParentOfType(ASTBlock.class);
+    /**
+     * Get the first argument in a primary expression
+     *
+     * @param expression: desired expression
+     * @return Node:      first argument of expression
+     */
+    private static Node getFirstArg(ASTPrimaryExpression expression) {
+        try {
+            List<Node> args = expression.findChildNodesWithXPath("./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
+            if (args.isEmpty()) {
+                return null;
+            }
+            return args.get(0).jjtGetChild(0);
 
-        if (parent == null) {
-            return node;
+        } catch (JaxenException e) {
+            e.printStackTrace();
         }
-        return findTopBlock(parent);
+        return null;
     }
 
-    private Node findTopTypeDeclaration(Node node) {
-        Node parent = node.getFirstParentOfType(ASTTypeDeclaration.class);
-
+    /**
+     * Return the enclosing method of node
+     *
+     * @param node:      node to get method of
+     * @return ASTBlock: method block
+     */
+    private static ASTBlock getMethod(Node node) {
+        ASTBlock parent = node.getFirstParentOfType(ASTBlock.class);
         if (parent == null) {
-            return node;
+            return (ASTBlock) node;
         }
-        return findTopTypeDeclaration(parent);
+        return getMethod(parent);
     }
 
-    private boolean isLocalVariable(Node parent, String variableImage) {
-        List<ASTLocalVariableDeclaration> localVariableDeclarations = parent.findDescendantsOfType(ASTLocalVariableDeclaration.class);
+    /**
+     * Determine if a variable is local
+     *
+     * @param method:       method to look for variable in
+     * @param variableName: name of variable to look for
+     * @return boolean:     true if variable is local, false otherwise
+     */
+    private static boolean isVariableLocal(ASTBlock method, String variableName) {
 
-        for (ASTLocalVariableDeclaration localVariableDeclaration: localVariableDeclarations) {
-            //System.out.println("Local variable declaration found");
-            Node node = localVariableDeclaration.getFirstDescendantOfType(ASTVariableDeclaratorId.class);
-            if (node.hasImageEqualTo(variableImage)) {
+        // find all variable declarations in method
+        List<ASTLocalVariableDeclaration> variables = method.findDescendantsOfType(ASTLocalVariableDeclaration.class);
+
+        // search for variable
+        for (ASTLocalVariableDeclaration variable: variables) {
+            ASTVariableDeclaratorId variableId = variable.getFirstDescendantOfType(ASTVariableDeclaratorId.class);
+            if (variableId.hasImageEqualTo(variableName)) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean checkAssignments(Node parentNode, String variableImage) {
-        List<ASTAssignmentOperator> assignments = parentNode.findDescendantsOfType(ASTAssignmentOperator.class);
+    /**
+     * Check if variable assignments are safe
+     *
+     * @param method:       method to look for variable in
+     * @param variableName: name of variable to check assignments of
+     * @return boolean:     true if assignments are safe, false otherwise
+     */
+    private static boolean validAssignments(ASTBlock method, String variableName) {
 
+        // safe assignments boolean
+        boolean safe = true;
+
+        // find all assignments
+        List<ASTAssignmentOperator> assignments = method.findDescendantsOfType(ASTAssignmentOperator.class);
+
+        // loop over assignments
         for (ASTAssignmentOperator assignment: assignments) {
-            //System.out.println("Assignment operator found");
-            Node directParent = assignment.jjtGetParent();
-            Node varPrefix = directParent.jjtGetChild(0).jjtGetChild(0).jjtGetChild(0);
-            if (varPrefix.hasImageEqualTo(variableImage)) {
-                //System.out.println("Assignment is assigning desired variable");
-                Node afterAssignment = directParent.jjtGetChild(2);
-                List<ASTPrimaryPrefix> prefixes = afterAssignment.findDescendantsOfType(ASTPrimaryPrefix.class);
-                boolean unsafe = false;
+
+            // check if assignment is assigning desired variable
+            Node expression = assignment.jjtGetParent();
+            Node assignmentVariable = expression.jjtGetChild(0).jjtGetChild(0).jjtGetChild(0);
+            if (assignmentVariable.hasImageEqualTo(variableName)) {
+
+                // check if variable is assigned to something unsafe
+                Node assignedTo = expression.jjtGetChild(2);
+                List<ASTPrimaryPrefix> prefixes = assignedTo.findDescendantsOfType(ASTPrimaryPrefix.class);
                 for (ASTPrimaryPrefix prefix: prefixes) {
-                    //System.out.println("Found assignment prefix");
                     if (!(prefix.jjtGetChild(0) instanceof ASTLiteral)) {
-                        unsafe = true; // Do something with unsafe assignments to further check safety
+                        safe = false;
+                        // TODO more extensive check to see if prefix child is safe
                     }
                 }
-                if (unsafe) {
-                    // at this point, the var has been assigned to something besides a literal,
-                    // the actual assignment should be checked to see if  what it's being assigned to is safe
-                    // will use recursion
-                    // TODO checkAssignmentOfAssignments()
-                    return false;
+            }
+        }
+        return safe;
+    }
+
+    /**
+     * Return the enclosing class of node
+     *
+     * @param node:      node to get class of
+     * @return ASTTypeDeclaration: class declaration
+     */
+    private static ASTTypeDeclaration getClass(Node node) {
+        ASTTypeDeclaration parent = node.getFirstParentOfType(ASTTypeDeclaration.class);
+        if (parent == null) {
+            return (ASTTypeDeclaration) node;
+        }
+        return getClass(parent);
+    }
+
+
+    /**
+     * Determine if method calls are safe
+     * @param cls:        class to look for method calls in
+     * @param methodName: method to look for calls too
+     * @return boolean:   true if safe calls only, false otherwise
+     */
+    private boolean validMethodCalls(ASTTypeDeclaration cls, String methodName) {
+        List<ASTPrimaryPrefix> prefixes = cls.findDescendantsOfType(ASTPrimaryPrefix.class);
+        for (ASTPrimaryPrefix prefix: prefixes) {
+            String methodCall = prefix.jjtGetChild(0).getImage();
+            if (methodCall != null && !methodCall.isEmpty()) {
+                if (methodName.equals(methodCall)) {
+                    if (!validArguments(prefix.jjtGetParent())) {
+                        return false;
+                    }
                 }
             }
+        }
+        return true;
+    }
+
+    /**
+     * Determine if arguments in an expression are safe
+     * TODO need to only look for correct argument
+     *
+     * @param expression: expression to look at
+     * @return boolean: true if arguments are safe, false otherwise
+     */
+    private boolean validArguments(Node expression) {
+        try {
+            List<? extends Node> args = expression.findChildNodesWithXPath(
+                    "./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
+            for (Node arg: args) {
+                String argName = arg.jjtGetChild(0).getImage();
+                ASTBlock method = getMethod(expression);
+                if (isVariableLocal(method, argName)) {
+                    if (!validAssignments(method, argName)) {
+                        return false;
+                    }
+                }
+            }
+        } catch (JaxenException e) {
+            e.printStackTrace();
         }
         return true;
     }
