@@ -13,11 +13,12 @@ import net.sourceforge.pmd.lang.java.ast.ASTAssignmentOperator;
 import net.sourceforge.pmd.lang.java.ast.ASTBlock;
 import net.sourceforge.pmd.lang.java.ast.ASTLiteral;
 import net.sourceforge.pmd.lang.java.ast.ASTLocalVariableDeclaration;
+import net.sourceforge.pmd.lang.java.ast.ASTMethodDeclarator;
 import net.sourceforge.pmd.lang.java.ast.ASTPrimaryExpression;
 import net.sourceforge.pmd.lang.java.ast.ASTPrimaryPrefix;
+import net.sourceforge.pmd.lang.java.ast.ASTTypeDeclaration;
 import net.sourceforge.pmd.lang.java.ast.ASTVariableDeclaratorId;
 import net.sourceforge.pmd.lang.java.rule.AbstractJavaRule;
-
 
 public class UncontrolledFormatStringRule extends AbstractJavaRule {
 
@@ -40,6 +41,19 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
                                 if (!checkAssignments(topBlock, variableImage)) {
                                     addViolation(data, node);
                                 }
+                            } else {
+                                Node methodDeclaration = topBlock.jjtGetParent();
+                                String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
+
+                                Node thisClass = findTopTypeDeclaration(methodDeclaration);
+                                String classImage = thisClass.jjtGetChild(0).getImage();
+
+                                List<ASTTypeDeclaration> classes = methodDeclaration.getParentsOfType(ASTTypeDeclaration.class);
+                                for (ASTTypeDeclaration cls: classes) {
+                                    if (!checkMethodCalls(classImage, methodImage, cls)) {
+                                        addViolation(data, node);
+                                    }
+                                }
                             }
                         }
                     }
@@ -49,6 +63,43 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
             }
         }
         return super.visit(node, data);
+    }
+
+    private boolean checkMethodCalls(String classImage, String methodImage, Node parent) {
+        List<ASTPrimaryPrefix> prefixes = parent.findDescendantsOfType(ASTPrimaryPrefix.class);
+        for (ASTPrimaryPrefix prefix: prefixes) {
+            String checkImage = prefix.jjtGetChild(0).getImage();
+            if (checkImage != null && !checkImage.isEmpty()) {
+                if (methodImage.equals(checkImage)) {
+                    if (!checkArguments(prefix.jjtGetParent())) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean checkArguments(Node expression) {
+        //Node expression = prefix.jjtGetParent();
+        try {
+            List<? extends Node> args = expression.findChildNodesWithXPath(
+                    "./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
+
+            for (Node arg: args) {
+                String argImage = arg.jjtGetChild(0).getImage();
+                Node topBlock = findTopBlock(expression);
+                if (isLocalVariable(topBlock, argImage)) {
+                    //System.out.println("Potentially bad sink is a local variable");
+                    if (!checkAssignments(topBlock, argImage)) {
+                        return false;
+                    }
+                }
+            }
+        } catch (JaxenException e) {
+            e.printStackTrace();
+        }
+        return true;
     }
 
     private boolean isStringFormatExpression(ASTPrimaryExpression expression) {
@@ -71,12 +122,21 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
     }
 
     private Node findTopBlock(Node node) {
-        Node blockParent = node.getFirstParentOfType(ASTBlock.class);
+        Node parent = node.getFirstParentOfType(ASTBlock.class);
 
-        if (blockParent == null) {
+        if (parent == null) {
             return node;
         }
-        return findTopBlock(blockParent);
+        return findTopBlock(parent);
+    }
+
+    private Node findTopTypeDeclaration(Node node) {
+        Node parent = node.getFirstParentOfType(ASTTypeDeclaration.class);
+
+        if (parent == null) {
+            return node;
+        }
+        return findTopTypeDeclaration(parent);
     }
 
     private boolean isLocalVariable(Node parent, String variableImage) {
