@@ -104,7 +104,6 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
             Node expression = assignment.jjtGetParent();
             Node assignmentVariable = expression.jjtGetChild(0).jjtGetChild(0).jjtGetChild(0);
             if (assignmentVariable.hasImageEqualTo(variableName)) {
-                // System.out.println("107: " + variableHolder + ":" + variableName);
                 if (unsafeExpression(expression.jjtGetChild(2))) {
                     return true;
                 }
@@ -145,7 +144,6 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
             Node assignment = prefix.jjtGetChild(0);
 
             // if not literal, check further
-            // System.out.println("148: " + assignment.getImage());
             if (!(assignment instanceof ASTLiteral)) {
                 ASTBlock thisMethod = getMethod(expression);
                 String assignmentImage = assignment.getImage();
@@ -208,7 +206,6 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
 
         String classImage = thisClass.jjtGetChild(0).getImage();
         for (ASTMethodDeclaration method: methods) {
-            // System.out.println("201: " + classImage + ":" + classVar);
             if (unsafeAssignments(method.getFirstChildOfType(ASTBlock.class), classImage, classVar)) {
                 return true;
             }
