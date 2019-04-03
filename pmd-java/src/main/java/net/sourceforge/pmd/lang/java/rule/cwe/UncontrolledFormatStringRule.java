@@ -128,8 +128,6 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
         return false;
     }
 
-
-
     /**
      * Determine if an individual assignment is safe.
      *
