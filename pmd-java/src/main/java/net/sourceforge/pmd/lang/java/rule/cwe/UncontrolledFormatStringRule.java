@@ -4,6 +4,7 @@
 
 package net.sourceforge.pmd.lang.java.rule.cwe;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.jaxen.JaxenException;
@@ -11,8 +12,10 @@ import org.jaxen.JaxenException;
 import net.sourceforge.pmd.lang.ast.Node;
 import net.sourceforge.pmd.lang.java.ast.ASTAssignmentOperator;
 import net.sourceforge.pmd.lang.java.ast.ASTBlock;
+import net.sourceforge.pmd.lang.java.ast.ASTFieldDeclaration;
 import net.sourceforge.pmd.lang.java.ast.ASTLiteral;
 import net.sourceforge.pmd.lang.java.ast.ASTLocalVariableDeclaration;
+import net.sourceforge.pmd.lang.java.ast.ASTMethodDeclaration;
 import net.sourceforge.pmd.lang.java.ast.ASTMethodDeclarator;
 import net.sourceforge.pmd.lang.java.ast.ASTPrimaryExpression;
 import net.sourceforge.pmd.lang.java.ast.ASTPrimaryPrefix;
@@ -23,6 +26,14 @@ import net.sourceforge.pmd.lang.java.ast.ASTVariableDeclaratorId;
 import net.sourceforge.pmd.lang.java.rule.AbstractJavaRule;
 
 public class UncontrolledFormatStringRule extends AbstractJavaRule {
+
+    private List<String> currentlyCheckingVar;
+    private List<String> currentlyCheckingVarHolder;
+
+    public UncontrolledFormatStringRule() {
+        this.currentlyCheckingVar = new ArrayList<>();
+        this.currentlyCheckingVarHolder = new ArrayList<>();
+    }
 
     /**
      * Visit a primary expression and determine if an UncontrolledFormatStringRule violation can be added
@@ -55,7 +66,9 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
 
         // if variable is local, check assignments
         if (isVariableLocal(thisMethod, firstArg.getImage())) {
-            if (!validAssignments(thisMethod, firstArg.getImage())) {
+            Node methodDeclaration = thisMethod.jjtGetParent();
+            String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
+            if (unsafeAssignments(thisMethod, methodImage, firstArg.getImage())) {
                 addViolation(data, node);
             }
         } else {
@@ -64,11 +77,208 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
             ASTTypeDeclaration thisClass = getClass(node);
             Node methodDeclaration = thisMethod.jjtGetParent();
             String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
-            if (!validMethodCalls(thisClass, methodImage)) {
+            if (unsafeMethodCalls(thisClass, methodImage)) {
                 addViolation(data, node);
             }
         }
         return super.visit(node, data);
+    }
+
+    /**
+     * Check if all variable assignments are safe
+     *
+     * @param method:       method to look for variable in
+     * @param variableName: name of variable to check assignments of
+     * @return boolean:     true if at least one assignment is unsafe, false otherwise
+     */
+    private boolean unsafeAssignments(ASTBlock method, String variableHolder, String variableName) {
+
+        // add to currently checking
+
+        this.currentlyCheckingVar.add(variableName);
+        this.currentlyCheckingVarHolder.add(variableHolder);
+
+        // check all assignments
+        List<ASTAssignmentOperator> assignments = method.findDescendantsOfType(ASTAssignmentOperator.class);
+        for (ASTAssignmentOperator assignment: assignments) {
+            Node expression = assignment.jjtGetParent();
+            Node assignmentVariable = expression.jjtGetChild(0).jjtGetChild(0).jjtGetChild(0);
+            if (assignmentVariable.hasImageEqualTo(variableName)) {
+                // System.out.println("107: " + variableHolder + ":" + variableName);
+                if (unsafeExpression(expression.jjtGetChild(2))) {
+                    return true;
+                }
+            }
+        }
+
+        // check all variable initializer assignments
+        List<ASTVariableDeclarator> variables = method.findDescendantsOfType(ASTVariableDeclarator.class);
+        for (ASTVariableDeclarator variable: variables) {
+            Node variableId = variable.jjtGetChild(0);
+            if (variableId.hasImageEqualTo(variableName)) {
+                if (variable.jjtGetNumChildren() > 1) {
+                    if (unsafeExpression(variable.jjtGetChild(1).jjtGetChild(0))) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        this.currentlyCheckingVar.remove(variableName);
+        this.currentlyCheckingVarHolder.remove(variableHolder);
+        return false;
+    }
+
+
+
+    /**
+     * Determine if an individual assignment is safe.
+     *
+     * @param expression: assignment expression
+     * @return boolean:   true if at least one prefix from expression is unsafe, false otherwise
+     */
+    private boolean unsafeExpression(Node expression) {
+
+        // iterate over each prefix of assignment
+        List<ASTPrimaryPrefix> prefixes = expression.findDescendantsOfType(ASTPrimaryPrefix.class);
+        for (ASTPrimaryPrefix prefix: prefixes) {
+            Node assignment = prefix.jjtGetChild(0);
+
+            // if not literal, check further
+            // System.out.println("148: " + assignment.getImage());
+            if (!(assignment instanceof ASTLiteral)) {
+                ASTBlock thisMethod = getMethod(expression);
+                String assignmentImage = assignment.getImage();
+
+                // make sure we aren't already checking the assignment image
+                Node methodDeclaration = thisMethod.jjtGetParent();
+                String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
+                int i = 0;
+                for (String var: this.currentlyCheckingVar) {
+                    if (var.equals(assignmentImage)) {
+                        if (methodImage.equals(this.currentlyCheckingVarHolder.get(i))) {
+                            return false;
+                        }
+                    }
+                    i++;
+                }
+
+                // is local variable, do recursive check on that variable
+                if (isVariableLocal(thisMethod, assignmentImage)) {
+
+                    if (unsafeAssignments(thisMethod, methodImage, assignmentImage)) {
+                        return true;
+                    }
+                } else {
+
+                    // if method call, check method return value
+                    Node method = findMethod(getClass(expression), assignmentImage);
+
+                    // check for class variable
+                    String classVar = findClassVariable(getClass(expression), assignmentImage);
+
+                    if (method != null) {
+                        if (unsafeMethodReturnStatements(method)) {
+                            return true;
+                        }
+                    } else if (classVar != null) {
+                        if (unsafeClassVariableAssignments(getClass(expression), assignmentImage)) {
+                            return true;
+                        }
+                    } else {
+                        // if not a literal, local variable, method call, or class variable, assume unsafe
+                        // Add another if statement if any other type of assignment could be safe
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check for unsafe class variable assignments
+     *
+     * @param thisClass: class of class variable
+     * @param classVar: class variable name
+     * @return: true if at least one assignment is unsafe, false otherwise
+     */
+    private boolean unsafeClassVariableAssignments(Node thisClass, String classVar) {
+        List<ASTMethodDeclaration> methods = thisClass.findDescendantsOfType(ASTMethodDeclaration.class);
+
+        String classImage = thisClass.jjtGetChild(0).getImage();
+        for (ASTMethodDeclaration method: methods) {
+            // System.out.println("201: " + classImage + ":" + classVar);
+            if (unsafeAssignments(method.getFirstChildOfType(ASTBlock.class), classImage, classVar)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a methods return statements are safe
+     *
+     * @param method:   method to check
+     * @return boolean: true if at least one return statement is unsafe, false otherwise
+     */
+    private boolean unsafeMethodReturnStatements(Node method) {
+        List<ASTReturnStatement> returns = method.findDescendantsOfType(ASTReturnStatement.class);
+        for (ASTReturnStatement ret: returns) {
+            if (unsafeExpression(ret.jjtGetChild(0))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Determine if method calls are safe
+     * @param cls:        class to look for method calls in
+     * @param methodName: method to look for calls too
+     * @return boolean:   true if at least one call is unsafe, false otherwise
+     */
+    private boolean unsafeMethodCalls(ASTTypeDeclaration cls, String methodName) {
+        List<ASTPrimaryPrefix> prefixes = cls.findDescendantsOfType(ASTPrimaryPrefix.class);
+        for (ASTPrimaryPrefix prefix: prefixes) {
+            String methodCall = prefix.jjtGetChild(0).getImage();
+            if (methodCall != null && !methodCall.isEmpty()) {
+                if (methodName.equals(methodCall)) {
+                    if (unsafeArguments(prefix.jjtGetParent())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Determine if arguments in an expression are safe
+     * TODO need to only look for correct argument
+     *
+     * @param expression: expression to look at
+     * @return boolean: true if at least one argument is unsafe, false otherwise
+     */
+    private boolean unsafeArguments(Node expression) {
+        try {
+            List<? extends Node> args = expression.findChildNodesWithXPath(
+                    "./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
+            for (Node arg: args) {
+                String argName = arg.jjtGetChild(0).getImage();
+                ASTBlock method = getMethod(expression);
+                if (isVariableLocal(method, argName)) {
+                    Node methodDeclaration = method.jjtGetParent();
+                    String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
+                    if (unsafeAssignments(method, methodImage, argName)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (JaxenException e) {
+            e.printStackTrace();
+        }
+        return false;
     }
 
     /**
@@ -153,83 +363,6 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
     }
 
     /**
-     * Check if all variable assignments are safe
-     *
-     * @param method:       method to look for variable in
-     * @param variableName: name of variable to check assignments of
-     * @return boolean:     true if assignments are safe, false otherwise
-     */
-    private static boolean validAssignments(ASTBlock method, String variableName) {
-
-        // safe assignments boolean
-        boolean safe = true;
-
-        // check all assignments
-        List<ASTAssignmentOperator> assignments = method.findDescendantsOfType(ASTAssignmentOperator.class);
-        for (ASTAssignmentOperator assignment: assignments) {
-            Node expression = assignment.jjtGetParent();
-            Node assignmentVariable = expression.jjtGetChild(0).jjtGetChild(0).jjtGetChild(0);
-            if (assignmentVariable.hasImageEqualTo(variableName)) {
-                safe = validAssignment(expression.jjtGetChild(2));
-            }
-        }
-
-        // check all variable initializer assignments
-        List<ASTVariableDeclarator> variables = method.findDescendantsOfType(ASTVariableDeclarator.class);
-        for (ASTVariableDeclarator variable: variables) {
-            Node variableId = variable.jjtGetChild(0);
-            if (variableId.hasImageEqualTo(variableName)) {
-                if (variable.jjtGetNumChildren() > 1) {
-                    safe = validAssignment(variable.jjtGetChild(1).jjtGetChild(0));
-                }
-            }
-        }
-
-        return safe;
-    }
-
-    /**
-     * Determine if an individual assignment is safe.
-     *
-     * @param expression: assignment expression
-     * @return boolean:   true if assignments are safe, false otherwise
-     */
-    private static boolean validAssignment(Node expression) {
-
-        boolean safe = true;
-
-        // iterate over each prefix of assignment
-        List<ASTPrimaryPrefix> prefixes = expression.findDescendantsOfType(ASTPrimaryPrefix.class);
-        for (ASTPrimaryPrefix prefix: prefixes) {
-            Node assignment = prefix.jjtGetChild(0);
-
-            // if not literal, check further
-            if (!(assignment instanceof ASTLiteral)) {
-                ASTBlock thisMethod = getMethod(expression);
-                String assignmentImage = assignment.getImage();
-
-                // is local variable, do recursive check on that variable
-                if (isVariableLocal(thisMethod, assignmentImage)) {
-                    if (!validAssignments(thisMethod, assignmentImage)) {
-                        safe = false;
-                    }
-                } else {
-
-                    // if method call, check method return value
-                    Node method = findMethod(getClass(expression), assignmentImage);
-                    if (method != null) {
-                        safe = validMethodReturn(method);
-                    }
-                    else {
-                        safe = false;
-                    }
-                }
-            }
-        }
-        return safe;
-    }
-
-    /**
      * Try to find a method in a class
      *
      * @param thisClass:  class to look in
@@ -247,19 +380,17 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
         return null;
     }
 
-    /**
-     * Check if a methods return value is a safe string
-     *
-     * @param method:   method to check
-     * @return boolean: true if string is safe, false otherwise
-     */
-    private static boolean validMethodReturn(Node method) {
-        List<ASTReturnStatement> returns = method.findDescendantsOfType(ASTReturnStatement.class);
-        boolean safe = true;
-        for (ASTReturnStatement ret: returns) {
-            safe = validAssignment(ret.jjtGetChild(0));
+    private static String findClassVariable(ASTTypeDeclaration thisClass, String varName) {
+        List<ASTFieldDeclaration> fields = thisClass.findDescendantsOfType(ASTFieldDeclaration.class);
+
+        for (ASTFieldDeclaration field: fields) {
+            Node fieldId = field.jjtGetChild(1).jjtGetChild(0);
+            if (fieldId.hasImageEqualTo(varName)) {
+                return varName;
+            }
         }
-        return safe;
+
+        return null;
     }
 
     /**
@@ -274,53 +405,5 @@ public class UncontrolledFormatStringRule extends AbstractJavaRule {
             return (ASTTypeDeclaration) node;
         }
         return getClass(parent);
-    }
-
-
-    /**
-     * Determine if method calls are safe
-     * @param cls:        class to look for method calls in
-     * @param methodName: method to look for calls too
-     * @return boolean:   true if safe calls only, false otherwise
-     */
-    private boolean validMethodCalls(ASTTypeDeclaration cls, String methodName) {
-        List<ASTPrimaryPrefix> prefixes = cls.findDescendantsOfType(ASTPrimaryPrefix.class);
-        for (ASTPrimaryPrefix prefix: prefixes) {
-            String methodCall = prefix.jjtGetChild(0).getImage();
-            if (methodCall != null && !methodCall.isEmpty()) {
-                if (methodName.equals(methodCall)) {
-                    if (!validArguments(prefix.jjtGetParent())) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Determine if arguments in an expression are safe
-     * TODO need to only look for correct argument
-     *
-     * @param expression: expression to look at
-     * @return boolean: true if arguments are safe, false otherwise
-     */
-    private boolean validArguments(Node expression) {
-        try {
-            List<? extends Node> args = expression.findChildNodesWithXPath(
-                    "./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
-            for (Node arg: args) {
-                String argName = arg.jjtGetChild(0).getImage();
-                ASTBlock method = getMethod(expression);
-                if (isVariableLocal(method, argName)) {
-                    if (!validAssignments(method, argName)) {
-                        return false;
-                    }
-                }
-            }
-        } catch (JaxenException e) {
-            e.printStackTrace();
-        }
-        return true;
     }
 }

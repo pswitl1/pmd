@@ -1,1 +1,1 @@
-pmd-dist\target\pmd-bin-6.13.0-SNAPSHOT\bin\pmd.bat -R cwe_tests\cwerules.xml -d cwe_tests\src -f text
+pmd-dist\target\pmd-bin-6.13.0-SNAPSHOT\bin\pmd.bat -R cwe_tests\testrules.xml -d cwe_tests\src -f text
