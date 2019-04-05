@@ -10,11 +10,10 @@ import java.util.List;
 import org.jaxen.JaxenException;
 
 import net.sourceforge.pmd.lang.ast.Node;
+import net.sourceforge.pmd.lang.java.ast.ASTArgumentList;
 import net.sourceforge.pmd.lang.java.ast.ASTAssignmentOperator;
 import net.sourceforge.pmd.lang.java.ast.ASTBlock;
-import net.sourceforge.pmd.lang.java.ast.ASTFieldDeclaration;
 import net.sourceforge.pmd.lang.java.ast.ASTLiteral;
-import net.sourceforge.pmd.lang.java.ast.ASTLocalVariableDeclaration;
 import net.sourceforge.pmd.lang.java.ast.ASTMethodDeclaration;
 import net.sourceforge.pmd.lang.java.ast.ASTMethodDeclarator;
 import net.sourceforge.pmd.lang.java.ast.ASTPrimaryExpression;
@@ -22,7 +21,6 @@ import net.sourceforge.pmd.lang.java.ast.ASTPrimaryPrefix;
 import net.sourceforge.pmd.lang.java.ast.ASTReturnStatement;
 import net.sourceforge.pmd.lang.java.ast.ASTTypeDeclaration;
 import net.sourceforge.pmd.lang.java.ast.ASTVariableDeclarator;
-import net.sourceforge.pmd.lang.java.ast.ASTVariableDeclaratorId;
 import net.sourceforge.pmd.lang.java.rule.AbstractJavaRule;
 
 /**
@@ -58,7 +56,7 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
         // make sure ASTPrimaryExpression is an expression in expressionsToCheck
         boolean checkForViolation = false;
         for (String expressionToCheck: expressionsToCheck) {
-            if (isExpression(node, expressionToCheck)) {
+            if (CweUtilities.isExpression(node, expressionToCheck)) {
                 checkForViolation = true;
             }
         }
@@ -72,31 +70,6 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
     }
 
     /**
-     * Determine if a primary expression is of type expressionToCheck
-     *
-     * @param expression:              primary expression to check
-     * @param expressionStringToCheck: string of expression to check against expression
-     * @return boolean:                true if expression of type expressionStringToCheck, false otherwise
-     */
-    private static boolean isExpression(ASTPrimaryExpression expression, String expressionStringToCheck) {
-
-        // check that children exist to enable a string format/printf
-        if (expression.jjtGetNumChildren() != 0) {
-            Node primaryPrefix = expression.jjtGetChild(0);
-            if (primaryPrefix.jjtGetNumChildren() != 0) {
-
-                // check if image is a system format/printf
-                String prefixImage = primaryPrefix.jjtGetChild(0).getImage();
-
-                if (prefixImage != null && !prefixImage.isEmpty()) {
-                    return expressionStringToCheck.equals(prefixImage);
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
      * Check if expression is unsafe
      *
      * @param node:  expression to check
@@ -105,7 +78,7 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
     private boolean unsafe(ASTPrimaryExpression node) {
 
         // get first arg, if no arg, return
-        Node firstArg = getFirstArg(node);
+        Node firstArg = CweUtilities.getFirstArg(node);
         if (firstArg == null) {
             return false;
         }
@@ -116,91 +89,21 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
         }
 
         // get this method
-        ASTBlock thisMethod = getMethod(node);
+        ASTBlock thisMethod = CweUtilities.getMethod(node);
 
         // if variable is local, check assignments
-        if (isVariableLocal(thisMethod, firstArg.getImage())) {
+        if (CweUtilities.isVariableLocal(thisMethod, firstArg.getImage())) {
             Node methodDeclaration = thisMethod.jjtGetParent();
             String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
             return unsafeAssignments(thisMethod, methodImage, firstArg.getImage());
         } else {
 
             // else check class for calls to this method
-            ASTTypeDeclaration thisClass = getClass(node);
+            ASTTypeDeclaration thisClass = CweUtilities.getClass(node);
             Node methodDeclaration = thisMethod.jjtGetParent();
             String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
             return unsafeMethodCalls(thisClass, methodImage);
         }
-    }
-
-    /**
-     * Get the first argument in a primary expression
-     *
-     * @param expression: desired expression
-     * @return Node:      first argument of expression
-     */
-    private static Node getFirstArg(ASTPrimaryExpression expression) {
-        try {
-            List<Node> args = expression.findChildNodesWithXPath("./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
-            if (args.isEmpty()) {
-                return null;
-            }
-            return args.get(0).jjtGetChild(0);
-
-        } catch (JaxenException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    /**
-     * Return the enclosing method of node
-     *
-     * @param node:      node to get method of
-     * @return ASTBlock: method block
-     */
-    private static ASTBlock getMethod(Node node) {
-        ASTBlock parent = node.getFirstParentOfType(ASTBlock.class);
-        if (parent == null) {
-            return (ASTBlock) node;
-        }
-        return getMethod(parent);
-    }
-
-    /**
-     * Determine if a variable is local
-     *
-     * @param method:       method to look for variable in
-     * @param variableName: name of variable to look for
-     * @return boolean:     true if variable is local, false otherwise
-     */
-    private static boolean isVariableLocal(ASTBlock method, String variableName) {
-
-        // find all variable declarations in method
-        List<ASTLocalVariableDeclaration> variables = method.findDescendantsOfType(ASTLocalVariableDeclaration.class);
-
-        // search for variable
-        for (ASTLocalVariableDeclaration variable: variables) {
-            ASTVariableDeclaratorId variableId = variable.getFirstDescendantOfType(ASTVariableDeclaratorId.class);
-            if (variableId.hasImageEqualTo(variableName)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Return the enclosing class of node
-     *
-     * @param node:                node to get class of
-     * @return ASTTypeDeclaration: class declaration
-     */
-    private static ASTTypeDeclaration getClass(Node node) {
-        ASTTypeDeclaration parent = node.getFirstParentOfType(ASTTypeDeclaration.class);
-        if (parent == null) {
-            return (ASTTypeDeclaration) node;
-        }
-        return getClass(parent);
     }
 
     /**
@@ -213,7 +116,6 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
     private boolean unsafeAssignments(ASTBlock method, String variableHolder, String variableName) {
 
         // add to currently checking
-
         currentlyCheckingVar.add(variableName);
         currentlyCheckingVarHolder.add(variableHolder);
 
@@ -282,94 +184,58 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
         for (ASTPrimaryPrefix prefix: prefixes) {
             Node assignment = prefix.jjtGetChild(0);
 
-            // if not literal, check further
-            if (!(assignment instanceof ASTLiteral)) {
-                ASTBlock thisMethod = getMethod(expression);
-                String assignmentImage = assignment.getImage();
+            if (assignment.getFirstParentOfType(ASTArgumentList.class) == null) {
+                // if not literal, check further
+                if (!(assignment instanceof ASTLiteral)) {
+                    ASTBlock thisMethod = CweUtilities.getMethod(expression);
+                    String assignmentImage = assignment.getImage();
 
-                // make sure we aren't already checking the assignment image
-                Node methodDeclaration = thisMethod.jjtGetParent();
-                String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
-                int i = 0;
-                for (String var: currentlyCheckingVar) {
-                    if (var.equals(assignmentImage)) {
-                        if (methodImage.equals(currentlyCheckingVarHolder.get(i))) {
-                            return false;
+                    // make sure we aren't already checking the assignment image
+                    Node methodDeclaration = thisMethod.jjtGetParent();
+                    String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
+                    int i = 0;
+                    for (String var : currentlyCheckingVar) {
+                        if (var.equals(assignmentImage)) {
+                            if (methodImage.equals(currentlyCheckingVarHolder.get(i))) {
+                                return false;
+                            }
                         }
+                        i++;
                     }
-                    i++;
-                }
 
-                // is local variable, do recursive check on that variable
-                if (isVariableLocal(thisMethod, assignmentImage)) {
+                    // is local variable, do recursive check on that variable
+                    if (CweUtilities.isVariableLocal(thisMethod, assignmentImage)) {
 
-                    if (unsafeAssignments(thisMethod, methodImage, assignmentImage)) {
-                        return true;
-                    }
-                } else {
-
-                    // if method call, check method return value
-                    Node method = findMethod(getClass(expression), assignmentImage);
-
-                    // check for class variable
-                    String classVar = findClassVariable(getClass(expression), assignmentImage);
-
-                    if (method != null) {
-                        if (unsafeMethodReturnStatements(method)) {
-                            return true;
-                        }
-                    } else if (classVar != null) {
-                        if (unsafeClassVariableAssignments(getClass(expression), assignmentImage)) {
+                        if (unsafeAssignments(thisMethod, methodImage, assignmentImage)) {
                             return true;
                         }
                     } else {
-                        // if not a literal, local variable, method call, or class variable, assume unsafe
-                        // Add another if statement if any other type of assignment could be safe
-                        System.out.println("Cannot find unsafe expression, assuming it is unsafe");
-                        return true;
+
+                        // if method call, check method return value
+                        Node method = CweUtilities.findMethod(CweUtilities.getClass(expression), assignmentImage);
+
+                        // check for class variable
+                        String classVar = CweUtilities.findClassVariable(CweUtilities.getClass(expression), assignmentImage);
+
+                        if (method != null) {
+                            if (unsafeMethodReturnStatements(method)) {
+                                return true;
+                            }
+                        } else if (classVar != null) {
+                            if (unsafeClassVariableAssignments(CweUtilities.getClass(expression), assignmentImage)) {
+                                return true;
+                            }
+                        } else {
+                            // if not a literal, local variable, method call, or class variable, assume unsafe
+                            // Add another if statement if any other type of assignment could be safe
+                            // System.out.println("Cannot find unsafe expression, assuming it is unsafe");
+                            return true;
+                        }
                     }
                 }
             }
         }
         return false;
-    }
-
-    /**
-     * Try to find a method in a class
-     *
-     * @param thisClass:  class to look in
-     * @param methodName: method name to look for
-     * @return Node:      the MethodDeclaration if found, if not null
-     */
-    private static Node findMethod(ASTTypeDeclaration thisClass, String methodName) {
-        List<ASTMethodDeclarator> methodsInClass = thisClass.findDescendantsOfType(ASTMethodDeclarator.class);
-
-        for (ASTMethodDeclarator method: methodsInClass) {
-            if (method.hasImageEqualTo(methodName)) {
-                return method.jjtGetParent();
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Try to find a class variable in a class
-     *
-     * @param thisClass: class to look in
-     * @param varName:   class variable name to look for
-     * @return String:   class variable string if found, if not null
-     */
-    private static String findClassVariable(ASTTypeDeclaration thisClass, String varName) {
-        List<ASTFieldDeclaration> fields = thisClass.findDescendantsOfType(ASTFieldDeclaration.class);
-
-        for (ASTFieldDeclaration field: fields) {
-            Node fieldId = field.jjtGetChild(1).jjtGetChild(0);
-            if (fieldId.hasImageEqualTo(varName)) {
-                return varName;
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -420,8 +286,8 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
                     "./PrimarySuffix/Arguments/ArgumentList/Expression/PrimaryExpression/PrimaryPrefix");
             for (Node arg: args) {
                 String argName = arg.jjtGetChild(0).getImage();
-                ASTBlock method = getMethod(expression);
-                if (isVariableLocal(method, argName)) {
+                ASTBlock method = CweUtilities.getMethod(expression);
+                if (CweUtilities.isVariableLocal(method, argName)) {
                     Node methodDeclaration = method.jjtGetParent();
                     String methodImage = methodDeclaration.findChildrenOfType(ASTMethodDeclarator.class).get(0).getImage();
                     if (unsafeAssignments(method, methodImage, argName)) {
