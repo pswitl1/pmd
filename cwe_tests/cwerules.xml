@@ -8,4 +8,9 @@
           class="net.sourceforge.pmd.lang.java.rule.cwe.UncontrolledFormatStringRule">
 
     </rule>
+
+    <rule name="net.sourceforge.pmd.lang.java.rule.cwe.EmptyBlockRule"
+          message="Empty Block"
+          class="net.sourceforge.pmd.lang.java.rule.cwe.EmptyBlockRule">
+    </rule>
 </ruleset>
