@@ -6,6 +6,20 @@
     <rule name="net.sourceforge.pmd.lang.java.rule.cwe.UncontrolledFormatStringRule"
           message="UncontrolledFormatStringRule"
           class="net.sourceforge.pmd.lang.java.rule.cwe.UncontrolledFormatStringRule">
+    </rule>
+    <rule name="net.sourceforge.pmd.lang.java.rule.cwe.ExternalControlOfSystemOrConfigurationSettingRule"
+          message="ExternalControlOfSystemOrConfigurationSettingRule"
+          class="net.sourceforge.pmd.lang.java.rule.cwe.ExternalControlOfSystemOrConfigurationSettingRule">
+
+    </rule>
+    <rule name="net.sourceforge.pmd.lang.java.rule.cwe.OffByOneErrorRule"
+          message="OffByOneErrorRule"
+          class="net.sourceforge.pmd.lang.java.rule.cwe.OffByOneErrorRule">
+
+    </rule>
+    <rule name="net.sourceforge.pmd.lang.java.rule.cwe.ProcessControlRule"
+          message="ProcessControlRule"
+          class="net.sourceforge.pmd.lang.java.rule.cwe.ProcessControlRule">
 
     </rule>
 </ruleset>
