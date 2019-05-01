@@ -22,4 +22,9 @@
           class="net.sourceforge.pmd.lang.java.rule.cwe.ProcessControlRule">
 
     </rule>
+
+    <rule name="net.sourceforge.pmd.lang.java.rule.cwe.EmptyBlockRule"
+          message="Empty Block"
+          class="net.sourceforge.pmd.lang.java.rule.cwe.EmptyBlockRule">
+    </rule>
 </ruleset>
