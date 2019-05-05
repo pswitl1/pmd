@@ -62,7 +62,7 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
         }
 
         // if expression is of desired type, check if unsafe
-        if (checkForViolation && unsafe(node)) {
+        if (checkForViolation && unsafe(node, null)) {
             addViolation(data, node);
         }
 
@@ -73,14 +73,17 @@ public class AbstractUncontrolledStringRule extends AbstractJavaRule {
      * Check if expression is unsafe
      *
      * @param node:  expression to check
+     * @param firstArg: optionally override call to getFirstArg, can be left null
      * @return true: if expression is unsafe, false otherwise
      */
-    private boolean unsafe(ASTPrimaryExpression node) {
+    boolean unsafe(ASTPrimaryExpression node, Node firstArg) {
 
         // get first arg, if no arg, return
-        Node firstArg = CweUtilities.getFirstArg(node);
         if (firstArg == null) {
-            return false;
+            firstArg = CweUtilities.getFirstArg(node);
+            if (firstArg == null) {
+                return false;
+            }
         }
 
         // if literal, return
